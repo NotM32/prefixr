@@ -9,7 +9,7 @@ mod irr;
 
 #[derive(Deserialize)]
 struct PrefixListParams {
-    ip_version: String,
+    ip_version: Option<String>,
     irr_object: String,
     min_length: Option<u8>,
 }
@@ -31,14 +31,15 @@ async fn get_prefix_list(
         min_length,
     }): Path<PrefixListParams>,
 ) -> impl IntoResponse {
+    // Log request
     tracing::info!(
-        "received params {} {} {}",
-        ip_version,
+        "received params {} {}",
         irr_object,
         min_length.unwrap_or(250)
     );
+
     // Parse IP version
-    match (ip_version.as_str(), min_length) {
+    match (ip_version.unwrap_or("ipv4".into()).as_str(), min_length) {
         ("ipv4", Some(min_length)) if min_length > 32 => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -60,7 +61,7 @@ async fn get_prefix_list(
         }
     }
 
-    let ipv6 = ip_version == "ipv6";
+    let ipv6 = ip_version.is_some_and(|v| v == "ipv6");
 
     // Run Query
     match irr::query_prefixes(&irr_object, ipv6).await {
@@ -76,6 +77,7 @@ async fn get_prefix_list(
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let app = Router::new()
+        .route("/prefix-list/{irr_object}", get(get_prefix_list))
         .route(
             "/{ip_version}/prefix-list/{irr_object}",
             get(get_prefix_list),
