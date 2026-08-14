@@ -1,15 +1,26 @@
 use axum::{Router, extract::Path, http::StatusCode, response::IntoResponse, routing::get};
+use serde::{Deserialize, Serialize};
+use std::env;
+
 #[cfg(feature = "lambda")]
 use lambda_http::{Error, run};
-use serde::Deserialize;
-use std::env;
 
 mod format;
 mod irr;
+mod rpsl;
 
+/// IP Version Enum
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "lowercase")]
+enum IPVersion {
+    IPv4,
+    IPv6,
+}
+
+/// URL Params for Prefix List generator
 #[derive(Deserialize)]
 struct PrefixListParams {
-    ip_version: Option<String>,
+    ip_version: Option<IPVersion>,
     irr_object: String,
     min_length: Option<u8>,
 }
@@ -17,13 +28,15 @@ struct PrefixListParams {
 impl Default for PrefixListParams {
     fn default() -> Self {
         Self {
-            ip_version: "ipv4".to_string(),
+            ip_version: Some(IPVersion::IPv4),
             irr_object: "".to_string(),
             min_length: None,
         }
     }
 }
 
+/// Route handler for /{ip_version?}/prefix-list/{irr_object}/{max_length?}
+#[tracing::instrument]
 async fn get_prefix_list(
     Path(PrefixListParams {
         ip_version,
@@ -39,29 +52,23 @@ async fn get_prefix_list(
     );
 
     // Parse IP version
-    match (ip_version.unwrap_or("ipv4".into()).as_str(), min_length) {
-        ("ipv4", Some(min_length)) if min_length > 32 => {
+    match (&ip_version, min_length) {
+        (Some(IPVersion::IPv4) | None, Some(min_length)) if min_length > 32 => {
             return (
                 StatusCode::BAD_REQUEST,
                 "min_length must not be greater than 32 for IPv4".to_string(),
             );
         }
-        ("ipv6", Some(min_length)) if min_length > 128 => {
+        (Some(IPVersion::IPv6), Some(min_length)) if min_length > 128 => {
             return (
                 StatusCode::BAD_REQUEST,
                 "min_length must not be greater than 128 for IPv6".to_string(),
             );
         }
-        ("ipv4" | "ipv6", _) => {}
-        (_, _) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                "ip_version must be one of 'ipv4' or 'ipv6'".to_string(),
-            );
-        }
+        (_, _) => {}
     }
 
-    let ipv6 = ip_version.is_some_and(|v| v == "ipv6");
+    let ipv6 = matches!(ip_version, Some(IPVersion::IPv6));
 
     // Run Query
     match irr::query_prefixes(&irr_object, ipv6).await {
@@ -71,6 +78,32 @@ async fn get_prefix_list(
             (StatusCode::OK, prefix_list)
         }
         Err(_) => (StatusCode::BAD_REQUEST, "Bad request".to_string()),
+    }
+}
+
+/// URL Params for Prefix List generator
+#[derive(Deserialize)]
+struct ASPathACLParams {
+    irr_object: String,
+}
+
+#[tracing::instrument]
+async fn get_aspath_acl(
+    Path(ASPathACLParams { irr_object }): Path<ASPathACLParams>,
+) -> impl IntoResponse {
+    match irr::query_object_type(&irr_object.as_str()).await {
+        Ok(irr::RPSLObjectClass::AsSet) => (StatusCode::OK, "".to_string()),
+        Ok(_) => (
+            StatusCode::NOT_ACCEPTABLE,
+            format!(
+                "irr_object must be of type as-set, value '{}' is not valid",
+                irr_object
+            ),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Error occurred while fetching data: {}", e),
+        ),
     }
 }
 
@@ -85,7 +118,8 @@ async fn main() -> Result<(), Error> {
         .route(
             "/{ip_version}/prefix-list/{irr_object}/{min_length}",
             get(get_prefix_list),
-        );
+        )
+        .route("/as-path-acl/{irr_object}", get(get_aspath_acl));
 
     // Detect if running on Lambda via env var
     if env::var("AWS_LAMBDA_RUNTIME_API").is_ok() {

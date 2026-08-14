@@ -12,7 +12,7 @@ pub fn format_as_prefix_list(prefixes: &[String], min_length: Option<u8>) -> Str
             };
 
             lines.push(format!("seq {} permit {}{}", line_index, prefix, le_str));
-            line_index = line_index + 10;
+            line_index += 10;
         }
     }
     lines.join("\n")
@@ -20,6 +20,7 @@ pub fn format_as_prefix_list(prefixes: &[String], min_length: Option<u8>) -> Str
 
 fn parse_cidr(prefix: &str) -> Option<(String, u8)> {
     let parts: Vec<&str> = prefix.split('/').collect();
+
     if parts.len() == 2 {
         parts[1]
             .parse::<u8>()

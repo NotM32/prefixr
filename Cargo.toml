@@ -8,10 +8,10 @@ anyhow = "1.0.100"
 axum = "0.8.6"
 lambda_http = { version = "0.17.0", features = ["anyhow"] }
 reqwest = { version = "0.12.24", features = ["json"] }
-rpsl-rs = { version = "2.0.1", features = ["json", "serde"] }
 serde = "1.0.228"
 serde_json = "1.0.145"
-tokio = "1.48.0"
+thiserror = "2.0.17"
+tokio = { version = "1.48.0", features = ["rt", "macros"] }
 tracing = "0.1.41"
 tracing-subscriber = "0.3.20"
 whois-rust = { version = "1.6.0", features = ["tokio"] }
