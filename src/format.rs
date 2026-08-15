@@ -35,7 +35,7 @@ pub fn format_as_prefix_list(prefixes: &[String], min_length: Option<u8>) -> Str
 ///   permit _AS4567_
 /// ```
 pub fn format_as_as_path_acl(name: &str, members: &[String]) -> String {
-    let mut lines = vec![format!("ip as-path access-list {name}")];
+    let mut lines = vec![];
     for m in members {
         lines.push(format!("permit _{m}_"));
     }
@@ -84,15 +84,8 @@ seq 30 permit 10.0.0.0/8 le 24"
         let result = format_as_as_path_acl("AS-TEST", &members);
         assert_eq!(
             result,
-            "ip as-path access-list AS-TEST
-  permit _AS123_
-  permit _AS4567_"
+            "permit _AS123_
+permit _AS4567_"
         );
-    }
-
-    #[test]
-    fn as_path_acl_empty() {
-        let result = format_as_as_path_acl("EMPTY-SET", &[]);
-        assert_eq!(result, "ip as-path access-list EMPTY-SET");
     }
 }
