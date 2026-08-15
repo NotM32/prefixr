@@ -87,12 +87,25 @@ struct ASPathACLParams {
     irr_object: String,
 }
 
+/// Route handler for /as-path-acl/{irr_object}
+///
+/// Queries the IRR for the as-set's recursive members and formats the
+/// result as an Arista eOS / Cisco-style AS-path access-list.
 #[tracing::instrument]
 async fn get_aspath_acl(
     Path(ASPathACLParams { irr_object }): Path<ASPathACLParams>,
 ) -> impl IntoResponse {
-    match irr::query_object_type(&irr_object.as_str()).await {
-        Ok(irr::RPSLObjectClass::AsSet) => (StatusCode::OK, "".to_string()),
+    match irr::query_object_type(irr_object.as_str()).await {
+        Ok(irr::RPSLObjectClass::AsSet) => match irr::query_as_set_members(&irr_object).await {
+            Ok(members) => {
+                let acl = format::format_as_as_path_acl(&irr_object, &members);
+                (StatusCode::OK, acl)
+            }
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Error occurred while fetching members: {}", e),
+            ),
+        },
         Ok(_) => (
             StatusCode::NOT_ACCEPTABLE,
             format!(

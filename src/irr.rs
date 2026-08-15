@@ -136,6 +136,60 @@ fn extract_prefixes(data: &Value) -> Result<Vec<String>, Error> {
         .collect::<Result<Vec<_>, _>>()
 }
 
+/// Query the recursive members of an as-set, returning a deduplicated,
+/// sorted list of AS numbers (e.g. `AS123`, `AS4567`).
+///
+/// Uses the `recursiveSetMembers` GraphQL query, which expands nested
+/// as-set references server-side and returns a flat list of leaf AS
+/// numbers. Empty member lists (from intermediate as-sets that only
+/// reference other sets) are ignored.
+#[tracing::instrument()]
+pub async fn query_as_set_members(irr_object: &str) -> anyhow::Result<Vec<String>> {
+    tracing::debug!("querying as-set members of {}", irr_object);
+    let gq = json!({
+        "query": format!(
+            r#"{{ recursiveSetMembers(setNames: ["{}"]) {{ members }} }}"#,
+            irr_object.to_uppercase()
+        )
+    });
+    let resp: Value = post_graphql(gq).await?;
+
+    let sets = resp["data"]["recursiveSetMembers"]
+        .as_array()
+        .ok_or(anyhow!("No data in response"))?;
+
+    // Flatten all member lists into one, dedupe, and sort. Each element
+    // is an as-set's resolved member list; we concatenate them.
+    let mut all: HashSet<String> = HashSet::new();
+    for set in sets {
+        if let Some(members) = set["members"].as_array() {
+            for m in members {
+                if let Some(s) = m.as_str()
+                    && !s.is_empty() {
+                        all.insert(s.to_string());
+                    }
+            }
+        }
+    }
+
+    let mut sorted: Vec<String> = all.into_iter().collect();
+    // Sort numerically by the AS number (strip `AS` prefix) so that the
+    // output is stable and human-friendly rather than lexicographic on
+    // the `AS`-prefixed string.
+    sorted.sort_by(|a, b| {
+        let na = a
+            .strip_prefix("AS")
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+        let nb = b
+            .strip_prefix("AS")
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+        na.cmp(&nb)
+    });
+    Ok(sorted)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +209,24 @@ mod tests {
         assert!(matches!(asn, RPSLObjectClass::AutNum));
         assert!(matches!(as_set, RPSLObjectClass::AsSet));
         assert!(matches!(route_set, RPSLObjectClass::RouteSet));
+    }
+
+    #[tokio::test]
+    async fn query_as_set_members_returns_sorted_asns() {
+        let members = query_as_set_members("AS-TEST")
+            .await
+            .expect("failed to fetch as-set members");
+        // AS-TEST is a well-known public test as-set with at least one member.
+        assert!(!members.is_empty());
+        // Every member should start with `AS`.
+        assert!(members.iter().all(|m| m.starts_with("AS")));
+        // Members should be sorted numerically.
+        let nums: Vec<u32> = members
+            .iter()
+            .map(|m| m.strip_prefix("AS").and_then(|s| s.parse().ok()).unwrap_or(0))
+            .collect();
+        let mut sorted_nums = nums.clone();
+        sorted_nums.sort();
+        assert_eq!(nums, sorted_nums);
     }
 }

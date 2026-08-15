@@ -1,8 +1,10 @@
 # prefixr
-This web service generates prefix lists from IRR entries, like those supported by Arista eOS and other vendor NOSes.
+[![Rust](https://github.com/NotM32/prefixr/actions/workflows/rust.yml/badge.svg?event=push)](https://github.com/NotM32/prefixr/actions/workflows/rust.yml)
+
+A web service that generates prefix-list and as-path ACLs for Arista/Cisco networking devices, from Internet Routing Registry entries.
 
 ## Usage
-You can run the service locally, or optionally deploy to AWS Lambda as I have.
+You can run the service locally, or optionally deploy to AWS Lambda.
 
 Some vendor NOS support updating a prefix-list via source URL. On Arista eOS you can use this style of configuration:
 
@@ -21,6 +23,33 @@ seq 20 permit 192.168.0.0/24
 
 The IRRd server is configurable. Your IRRd server must be a new enough version to provide GraphQL. Public IRRd servers may or may not provide a GraphQL endpoint; NTT's `rr.ntt.net` supports this, however RADb does not have a production GraphQL endpoint that I am aware of.
 
+### Examples
+
+**Prefix List**
+Create a list of entries in `ip prefix-list` format.
+```http
+GET /prefix-list/{irr_object}                 # Generates an IPv4 prefix list from irr_object
+GET /{ipv4 | ipv6}/{irr_object}               # Generates an IPv4 or IPv6 prefix list irr_object
+GET /prefix-list/{irr_object}/{min_length}    # Generates an IPv4 prefix list from irr_object with le value equal to min_length
+```
+
+The Arista/Cisco format entry list is compatible with the `ip prefix-list {name} source` configuration stanza present in eOS. You can also use a script to query and build a configuration template.
+
+Supports `AutNum`, `AsSet`, or `RouteSet` IRR objects.
+
+Prefixes are recursively resolved from the IRR object.
+
+**AS-Path ACL**
+Create an AS-Path list from an IRR AS-Set object.
+
+``` http
+GET /as-path-acl/{irr_object}
+```
+
+Compatible with the `ip as-path access-list {name} source` command. 
+
+The output of this can be very verbose, as all ASNs are recursively resolved.
+
 ## Deployment
 You can deploy this service locally if desired. To build the program, simply clone this repository and run `cargo build`. 
 
@@ -33,7 +62,7 @@ Current and planned:
 - [X] IPv4 and IPv6 Prefix List generation
 - [X] More specific prefixes via `le` entries
 - [X] Option to use own IRRd instance (latest version is required, thisp roject relies graphql for now)
-- [ ] RPSL parsing for non-GraphQL IRRd instances
+- [X] RPSL parsing for non-GraphQL IRRd instances
 - [ ] Support for multiple vendor NOS (if this can be adapted for Nokia, Juniper, Cisco or other devices, please let me know)
 - [ ] Support for non-http update methods
 

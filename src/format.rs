@@ -18,6 +18,30 @@ pub fn format_as_prefix_list(prefixes: &[String], min_length: Option<u8>) -> Str
     lines.join("\n")
 }
 
+/// Format a list of AS numbers (e.g. `["AS123", "AS4567"]`) as an Arista
+/// eOS / Cisco-style AS-path access-list.
+///
+/// Each AS number produces one `permit` entry wrapped in underscores
+/// (`_AS123_`) so that the regex anchors the AS as a distinct hop in the
+/// BGP AS_PATH rather than a substring of a larger AS number. The list
+/// name is user-supplied.
+///
+/// Example output for `name = "AS-TEST"` and `members = ["AS123",
+/// "AS4567"]`:
+///
+/// ```text
+/// ip as-path access-list AS-TEST
+///   permit _AS123_
+///   permit _AS4567_
+/// ```
+pub fn format_as_as_path_acl(name: &str, members: &[String]) -> String {
+    let mut lines = vec![format!("ip as-path access-list {name}")];
+    for m in members {
+        lines.push(format!("permit _{m}_"));
+    }
+    lines.join("\n")
+}
+
 fn parse_cidr(prefix: &str) -> Option<(String, u8)> {
     let parts: Vec<&str> = prefix.split('/').collect();
 
@@ -52,5 +76,23 @@ mod tests {
 seq 20 permit 172.16.10.0/24
 seq 30 permit 10.0.0.0/8 le 24"
         )
+    }
+
+    #[test]
+    fn as_path_acl_conversion() {
+        let members = vec!["AS123".to_string(), "AS4567".to_string()];
+        let result = format_as_as_path_acl("AS-TEST", &members);
+        assert_eq!(
+            result,
+            "ip as-path access-list AS-TEST
+  permit _AS123_
+  permit _AS4567_"
+        );
+    }
+
+    #[test]
+    fn as_path_acl_empty() {
+        let result = format_as_as_path_acl("EMPTY-SET", &[]);
+        assert_eq!(result, "ip as-path access-list EMPTY-SET");
     }
 }
